@@ -1,3 +1,4 @@
+*.mov
 venv/
 *.ipynb_checkpoints
 *__/pycache/__
