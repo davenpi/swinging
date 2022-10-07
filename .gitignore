@@ -1,3 +1,4 @@
+*logs
 *.mov
 venv/
 *.ipynb_checkpoints

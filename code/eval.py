@@ -6,7 +6,8 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.animation as animation
 
 env = ld.Swing()
-model = PPO.load("trained_model.zip", env=env)
+# model = PPO.load("trained_model_new.zip", env=env)
+model = PPO.load("logs/rl_model_10000_steps.zip", env=env)
 
 
 done = False
@@ -42,5 +43,5 @@ fig, ax = plt.subplots(figsize=(10, 10))
 ani = FuncAnimation(fig, animate, frames=x_t.size, interval=100, repeat=False)
 
 writervideo = animation.FFMpegWriter(fps=8)
-ani.save("ani_vid.mp4", writer=writervideo)
+ani.save("ani_vid_10000_steps.mp4", writer=writervideo)
 plt.close()

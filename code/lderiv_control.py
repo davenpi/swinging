@@ -18,8 +18,8 @@ class Swing(gym.Env):
         super(Swing, self).__init__()
         self.power_max = 2500  # number in Watts is max power output from muscles
         self.mass = 70  # 70 kg person
-        self.lmin = 4  # 2
-        self.lmax = 5  # 2.5
+        self.lmin = 4.5  # 2
+        self.lmax = 5.5  # 2.5
         self.phidot_0 = -0.1
         self.target = np.pi
         self.time = 0
@@ -60,6 +60,7 @@ class Swing(gym.Env):
         self.L.extend(list(L[1:]))
         self.time += self.tau
         self.pumps += 1
+        self.get_max_u()
 
     def check_out_of_bounds_action(self, ldot):
         """Check if an action will take us out of bounds. if so don't allow it."""
@@ -72,20 +73,43 @@ class Swing(gym.Env):
             ldot = ldot
         return ldot
 
-    def check_max_power_action(self, ldot):
-        power_bound = self.power_max / (
-            (self.mass)
-            * (9.81 * np.cos(self.phi[-1]) + self.L[-1] * self.phi_dot[-1] ** 2)
+    def get_max_u(self):
+        """
+        Get max u for the current state
+        """
+        power_bounded_u = np.abs(
+            self.power_max
+            / (
+                (self.mass)
+                * (
+                    -9.81 * (1 - np.cos(self.phi[-1]))
+                    + self.L[-1] * self.phi_dot[-1] ** 2
+                )
+            )
         )
-        if ldot < power_bound:
+        self.power_bounded_u = power_bounded_u
+
+    def check_max_power_action(self, ldot):
+        power_bounded_u = np.abs(
+            self.power_max
+            / (
+                (self.mass)
+                * (
+                    -9.81 * (1 - np.cos(self.phi[-1]))
+                    + self.L[-1] * self.phi_dot[-1] ** 2
+                )
+            )
+        )
+        if ldot < power_bounded_u:
             ldot = ldot
         else:
-            ldot = power_bound
+            ldot = power_bounded_u
         return ldot
 
     def step(self, action):
         """Take action and simulate"""
         ldot = self.ldot_max * action[0]
+        # ldot = self.power_bounded_u * action[0]
         ldot = self.check_max_power_action(ldot)
         ldot = self.check_out_of_bounds_action(ldot)
         self.Ldot_hist.append(ldot)
