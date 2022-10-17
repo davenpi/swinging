@@ -6,8 +6,13 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.animation as animation
 
 env = ld.Swing()
+env.phidot_0 = 0.0614
+env.lmin = 4.25
+env.lmax = 5.75
+env.phi = [5.72]
 # model = PPO.load("trained_model_new.zip", env=env)
-model = PPO.load("logs/rl_model_10000_steps.zip", env=env)
+# model = PPO.load("logs/rl_model_10000_steps.zip", env=env)
+model = PPO.load("logs/rl_model_200000_steps.zip", env=env)
 
 
 done = False
@@ -15,6 +20,8 @@ obs = env.reset()
 while not done:
     action, _states = model.predict(obs)
     obs, reward, done, _ = env.step(action)
+    if env.pumps > 100:
+        break
 
 phi_hist = np.array(env.phi)
 l_hist = np.array(env.L)
@@ -43,5 +50,5 @@ fig, ax = plt.subplots(figsize=(10, 10))
 ani = FuncAnimation(fig, animate, frames=x_t.size, interval=100, repeat=False)
 
 writervideo = animation.FFMpegWriter(fps=8)
-ani.save("ani_vid_10000_steps.mp4", writer=writervideo)
+ani.save("max_power_1000/weight_1/vid.mp4", writer=writervideo)
 plt.close()
