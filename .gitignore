@@ -1,3 +1,7 @@
+vids/
+*.png
+*pycache*
+*.mp4
 *logs
 *.mov
 venv/

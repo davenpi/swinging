@@ -12,7 +12,7 @@ env.lmax = 5.75
 env.phi = [5.72]
 # model = PPO.load("trained_model_new.zip", env=env)
 # model = PPO.load("logs/rl_model_10000_steps.zip", env=env)
-model = PPO.load("logs/rl_model_200000_steps.zip", env=env)
+model = PPO.load("logs/rl_model_200000_steps", env=env)
 
 
 done = False
@@ -25,6 +25,7 @@ while not done:
 
 phi_hist = np.array(env.phi)
 l_hist = np.array(env.L)
+# control_hist = np.array()
 
 x_t = l_hist * np.sin(phi_hist)
 y_t = -l_hist * np.cos(phi_hist)
@@ -47,8 +48,8 @@ def animate(i):
 
 fig, ax = plt.subplots(figsize=(10, 10))
 # run the animation
-ani = FuncAnimation(fig, animate, frames=x_t.size, interval=100, repeat=False)
+ani = FuncAnimation(fig, animate, frames=x_t.size, interval=10, repeat=False)
 
 writervideo = animation.FFMpegWriter(fps=8)
-ani.save("max_power_1000/weight_1/vid.mp4", writer=writervideo)
+ani.save("video.mp4", writer=writervideo)
 plt.close()

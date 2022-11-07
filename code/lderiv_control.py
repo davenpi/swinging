@@ -18,7 +18,7 @@ class Swing(gym.Env):
         self.target = np.pi
         self.time = 0
         self.pumps = 0
-        self.tau = np.sqrt(self.lmin / 9.81) / 8  # play with this
+        self.tau = np.sqrt(self.lmin / 9.81) / 4  # play with this
         self.ldot_max = (self.lmax - self.lmin) / (self.tau)
         self.observation_space = gym.spaces.Box(
             low=np.array([0, -10, self.lmin]),
@@ -28,7 +28,7 @@ class Swing(gym.Env):
         self.phi = [5.72]
         self.phi_dot = [self.phidot_0]
         self.L = [self.lmin]
-        self.Ldot_hist = []
+        self.Ldot_hist = [0]
 
     def fun(self, t, y, ldot, g=9.81):
         """
@@ -268,7 +268,7 @@ class Swing(gym.Env):
         self.L = [self.lmin]
         self.phi = [5.72]
         self.phi_dot = [self.phidot_0]
-        self.Ldot_hist.clear()
+        self.Ldot_hist = [0]
         state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
         return state
 
