@@ -1,4 +1,4 @@
-import lderiv_control as ld
+import non_dim_lderiv_control as ld
 from stable_baselines3 import PPO
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,13 +6,13 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.animation as animation
 
 env = ld.Swing()
-env.phidot_0 = 0.0614
-env.lmin = 4.25
-env.lmax = 5.75
-env.phi = [5.72]
+# env.phidot_0 = 0.0614
+# env.lmin = 4.25
+# env.lmax = 5.75
+# env.phi = [5.72]
 # model = PPO.load("trained_model_new.zip", env=env)
 # model = PPO.load("logs/rl_model_10000_steps.zip", env=env)
-model = PPO.load("logs/rl_model_200000_steps", env=env)
+model = PPO.load("logs/rl_model_250000_steps", env=env)
 
 
 done = False
@@ -48,7 +48,7 @@ def animate(i):
 
 fig, ax = plt.subplots(figsize=(10, 10))
 # run the animation
-ani = FuncAnimation(fig, animate, frames=x_t.size, interval=10, repeat=False)
+ani = FuncAnimation(fig, animate, frames=x_t.size, interval=20, repeat=False)
 
 writervideo = animation.FFMpegWriter(fps=8)
 ani.save("video.mp4", writer=writervideo)
