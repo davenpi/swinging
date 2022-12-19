@@ -12,25 +12,27 @@ class Swing(gym.Env):
         super(Swing, self).__init__()
         self.power_max = 1000  # number in Watts is max power output from muscles
         self.mass = 70  # 70 kg person
-        self.lmin = 4.25  # minimum pendulum length in meters
-        self.lmax = 5.75  # maximum pendulum length in meters. assumed human is 1.8 m
-        self.phidot_0 = 0.0614
+        self.lmin = 4.5  # minimum pendulum length in meters
+        self.lmax = 5.5  # maximum pendulum length in meters. assumed human is 1.8 m
         self.target = np.pi
         self.time = 0
         self.pumps = 0
         # self.tau = np.sqrt(self.lmin / 9.81) / 4  # play with this
         self.tau = np.sqrt(self.lmin) / 4  # play with this
         # self.ldot_max = (self.lmax - self.lmin) / (self.tau)
-        self.ldot_max = (self.lmax - self.lmin) / (4 * self.tau)
+        self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
         self.observation_space = gym.spaces.Box(
             low=np.array([0, -10, self.lmin]),
             high=np.array([2 * np.pi, 10, self.lmax]),  # phi, phi dot, L
         )
         self.action_space = gym.spaces.Box(low=np.array([-1]), high=np.array([1]))
-        self.phi = [5.72]
+        self.phi_0 = np.pi / 9
+        self.phi = [self.phi_0]
+        self.phidot_0 = 0.0
         self.phi_dot = [self.phidot_0]
         self.L = [self.lmin]
         self.Ldot_hist = [0]
+        self.pump_limit = 5000
 
     def fun(self, t, y, ldot, g=9.81):
         """
@@ -86,7 +88,6 @@ class Swing(gym.Env):
             args=[ldot],
         )
         phi = np.mod(sol.y[0], 2 * np.pi)
-        # self.phi.extend(list(phi[1:])) # MIGHT BE THE SOURCE OF JAGGED PHI PLOT
         self.phi.extend(list(phi[1:]))
         phi_dot = sol.y[1]
         self.phi_dot.extend(list(phi_dot[1:]))
@@ -94,7 +95,6 @@ class Swing(gym.Env):
         self.L.extend(list(L[1:]))
         self.time += self.tau
         self.pumps += 1
-        # self.get_max_u()
 
     def check_out_of_bounds_action(self, ldot):
         """
@@ -153,15 +153,19 @@ class Swing(gym.Env):
             Same as policy action if the suggested action is within bound.
             Otherwise return the maximum power action allowed in this state.
         """
+        # power_bounded_u = np.abs(
+        #     self.power_max
+        #     / (
+        #         (self.mass)
+        #         * (
+        #             -9.81 * (1 - np.cos(self.phi[-1]))
+        #             + self.L[-1] * self.phi_dot[-1] ** 2
+        #         )
+        #     )
+        # )
+
         power_bounded_u = np.abs(
-            self.power_max
-            / (
-                (self.mass)
-                * (
-                    -9.81 * (1 - np.cos(self.phi[-1]))
-                    + self.L[-1] * self.phi_dot[-1] ** 2
-                )
-            )
+            self.power_max / (self.L[-1] * self.phi_dot[-1] ** 2 + np.cos(self.phi[-1]))
         )
         if np.abs(ldot) < power_bounded_u:
             ldot = ldot
@@ -222,7 +226,7 @@ class Swing(gym.Env):
         ):
             reward = 1
             done = True
-        elif self.pumps > 5_000:
+        elif self.pumps > self.pump_limit:
             reward = -1
             done = True
         else:
@@ -243,7 +247,7 @@ class Swing(gym.Env):
         self.time = 0
         self.pumps = 0
         self.L = [self.lmin]
-        self.phi = [5.72]
+        self.phi = [self.phi_0]
         self.phi_dot = [self.phidot_0]
         self.Ldot_hist = [0]
         state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
