@@ -19,9 +19,9 @@ env.ldot_max = ldot_max
 env.phi_0 = phi_0
 env.phidot_0 = phidot_0
 env.tau = tau
-env.power_max = 50
+env.power_max = 0.25
 
-model = SAC.load("logs/rl_model_150000_steps", env=env)
+model = SAC.load("w_power_logs/rl_model_300000_steps", env=env)
 
 
 done = False
