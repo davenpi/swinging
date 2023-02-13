@@ -8,7 +8,7 @@ class Swing(gym.Env):
     Swing environment.
     """
 
-    def __init__(self):
+    def __init__(self, power_bounded: bool):
         super(Swing, self).__init__()
         self.power_max = 1000  # number in Watts is max power output from muscles
         self.mass = 70  # 70 kg person
@@ -21,18 +21,26 @@ class Swing(gym.Env):
         self.tau = np.sqrt(self.lmin) / 4  # play with this
         # self.ldot_max = (self.lmax - self.lmin) / (self.tau)
         self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
+        # self.observation_space = gym.spaces.Box(
+        #     low=np.array([0, -10, self.lmin]),
+        #     high=np.array([2 * np.pi, 10, self.lmax]),  # phi, phi dot, L
+        # )
         self.observation_space = gym.spaces.Box(
-            low=np.array([0, -10, self.lmin]),
-            high=np.array([2 * np.pi, 10, self.lmax]),  # phi, phi dot, L
+            low=np.array([-1, -1, -10, self.lmin]),
+            high=np.array([1, 1, 10, self.lmax]),  # cos(phi), sin(phi), phi dot, L
         )
         self.action_space = gym.spaces.Box(low=np.array([-1]), high=np.array([1]))
-        self.phi_0 = np.pi / 9
+        # self.action_space = gym.spaces.Discrete(3)
+        self.phi_0 = np.pi / 4
         self.phi = [self.phi_0]
         self.phidot_0 = 0.0
         self.phi_dot = [self.phidot_0]
-        self.L = [self.lmin]
+        self.L = [self.lmax]
         self.Ldot_hist = [0]
         self.pump_limit = 5000
+        self.rtol = 0.05
+        self.power_bounded = power_bounded
+        self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
     def fun(self, t, y, ldot, g=9.81):
         """
@@ -43,7 +51,7 @@ class Swing(gym.Env):
         t : float
             Instantaneous time. Used if equation depends explicitly on time.
         y : np.ndarray
-            Array containing state values at a given time.
+            Array containing (theta, omega, l) values at a given time.
         ldot : float
             Value of the control variable u = ldot at a given time.
         g : float
@@ -53,6 +61,18 @@ class Swing(gym.Env):
         -------
         y_dot : np.ndarray
         """
+        if self.power_bounded == True:
+            power_bounded_u = np.abs(self.power_max / (y[2] * y[1] ** 2 + np.cos(y[0])))
+            if np.abs(ldot) < power_bounded_u:
+                ldot = ldot
+            else:
+                if ldot > 0:
+                    ldot = power_bounded_u
+                else:
+                    ldot = -power_bounded_u
+        else:
+            ldot = ldot
+
         y0_dot = y[1]
         # y1_dot = -(2 * ldot / y[2]) * y[1] - (g / y[2]) * np.sin(y[0])
         y1_dot = -(2 * ldot / y[2]) * y[1] - (1 / y[2]) * np.sin(
@@ -88,11 +108,11 @@ class Swing(gym.Env):
             args=[ldot],
         )
         phi = np.mod(sol.y[0], 2 * np.pi)
-        self.phi.extend(list(phi[1:]))
+        self.phi.extend(list(phi[-1:]))
         phi_dot = sol.y[1]
-        self.phi_dot.extend(list(phi_dot[1:]))
+        self.phi_dot.extend(list(phi_dot[-1:]))
         L = sol.y[2]
-        self.L.extend(list(L[1:]))
+        self.L.extend(list(L[-1:]))
         self.time += self.tau
         self.pumps += 1
 
@@ -175,6 +195,15 @@ class Swing(gym.Env):
             else:
                 ldot = -power_bounded_u
         return ldot
+    
+    def action_rounder(self, action):
+        if action > 0.5:
+            action = 1
+        elif action < -0.5:
+            action = -1
+        else:
+            action = 0
+        return action
 
     def step(self, action):
         """
@@ -214,15 +243,24 @@ class Swing(gym.Env):
             ran out of time. False otherwise.
         reward : float
         """
-        ldot = self.ldot_max * action[0]
+
+        action = self.action_rounder(action[0])
+        # action = self.discrete_action_lookup[action]
+        ldot = self.ldot_max*action
         ldot = self.check_max_power_action(ldot)
         ldot = self.check_out_of_bounds_action(ldot)
         self.Ldot_hist.append(ldot)
         self.forward(ldot)
-        state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
+        # state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
+        state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), self.phi_dot[-1], self.L[-1]], dtype=np.float32)
         phi_prev = self.phi[-2]
-        if np.isclose(state[0], self.target, rtol=0.05) or np.isclose(
-            phi_prev, self.target, rtol=0.05
+        # if np.isclose(state[0], self.target, rtol=0.05) or np.isclose(
+        #     phi_prev, self.target, rtol=0.05
+        # ):
+        #     reward = 1
+        #     done = True
+        if np.isclose(self.phi[-1], self.target, rtol=self.rtol) or np.isclose(
+            phi_prev, self.target, rtol=self.rtol
         ):
             reward = 1
             done = True
@@ -233,7 +271,6 @@ class Swing(gym.Env):
             reward = -1
             done = False
         info = {}
-        # reward -= 2 * (ldot**2) / self.ldot_max**2  # worked with multiply by 2
         return state, reward, done, info
 
     def reset(self):
@@ -246,11 +283,12 @@ class Swing(gym.Env):
         """
         self.time = 0
         self.pumps = 0
-        self.L = [self.lmin]
+        self.L = [self.lmax]
         self.phi = [self.phi_0]
         self.phi_dot = [self.phidot_0]
         self.Ldot_hist = [0]
-        state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
+        # state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
+        state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), self.phi_dot[-1], self.L[-1]], dtype=np.float32)
         return state
 
     def render(self):
