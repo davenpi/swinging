@@ -26,7 +26,7 @@ def animate(i):
 
 
 # run the animation
-ani = FuncAnimation(fig, animate, frames=pos_arr[0].size, interval=80, repeat=False)
+ani = FuncAnimation(fig, animate, frames=pos_arr[0].size, interval=20, repeat=False)
 
 writervideo = animation.FFMpegWriter(fps=8)
 ani.save(args.fname, writer=writervideo)

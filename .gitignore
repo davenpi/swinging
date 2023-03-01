@@ -1,3 +1,6 @@
+*models*
+*logs*
+*.csv*
 vids/
 *.png
 *pycache*

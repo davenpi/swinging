@@ -11,29 +11,24 @@ class Swing(gym.Env):
     def __init__(self, power_bounded: bool):
         super(Swing, self).__init__()
         self.power_max = 1000  # number in Watts is max power output from muscles
-        self.mass = 70  # irrelevant in non dim
-        self.lmin = 0.9
-        self.lmax = 1.1
+        self.mass = 70  # 70 kg person
+        self.lmin = 4.5  # minimum pendulum length in meters
+        self.lmax = 5.5  # maximum pendulum length in meters. assumed human is 1.8 m
         self.target = np.pi
         self.time = 0
         self.pumps = 0
-        self.tau = np.sqrt(self.lmin) / 4  # play with this
+        self.tau = np.sqrt(self.lmin) / 4
         self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
         # self.observation_space = gym.spaces.Box(
-        #     low=np.array([-1, -1, -1]),
-        #     high=np.array([1, 1, 1]),  # cos(phi), sin(phi), phi dot normalized
-        # )
-        # self.observation_space = gym.spaces.Box(
-        #     low=np.array([-1, -1, -1, -1]),
-        #     high=np.array([1, 1, 1, 1]),  # cos(phi), sin(phi), phi dot, L all normalized
+        #     low=np.array([0, -10, self.lmin]),
+        #     high=np.array([2 * np.pi, 10, self.lmax]),  # phi, phi dot, L
         # )
         self.observation_space = gym.spaces.Box(
-            low=np.array([-1, -1, -1]),
-            high=np.array([1, 1, 1]),  # cos(phi), phi dot, L all normalized
+            low=np.array([-1, -1, -10, self.lmin]),
+            high=np.array([1, 1, 10, self.lmax]),  # cos(phi), sin(phi), phi dot, L
         )
-        # self.action_space = gym.spaces.Box(low=np.array([-1]), high=np.array([1]))
-        self.action_space = gym.spaces.Discrete(3)
-        self.phi_0 = np.pi / 4
+        self.action_space = gym.spaces.Box(low=np.array([-1]), high=np.array([1]))
+        self.phi_0 = np.pi / 2
         self.phi = [self.phi_0]
         self.phidot_0 = 0.0
         self.phi_dot = [self.phidot_0]
@@ -44,16 +39,6 @@ class Swing(gym.Env):
         self.power_bounded = power_bounded
         self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
-    def length_normalizer(self, length):
-        length = 10 * (length - 1)
-        return length
-
-    def omega_normalizer(self, omega):
-        omega = (
-            omega / 3
-        )  # got the 3 by looking at a trajectory that nearly matched to OCT trajectory
-        return omega
-
     def fun(self, t, y, ldot, g=9.81):
         """
         Define system of equations to simulate.
@@ -63,8 +48,7 @@ class Swing(gym.Env):
         t : float
             Instantaneous time. Used if equation depends explicitly on time.
         y : np.ndarray
-            Array containing (theta, omega, l) values at a given time. Not the
-            same as the state.
+            Array containing (theta, omega, l) values at a given time.
         ldot : float
             Value of the control variable u = ldot at a given time.
         g : float
@@ -125,7 +109,6 @@ class Swing(gym.Env):
         phi_dot = sol.y[1]
         self.phi_dot.extend(list(phi_dot[-1:]))
         L = sol.y[2]
-        # L = np.clip(L, self.lmin, self.lmax)
         self.L.extend(list(L[-1:]))
         self.time += self.tau
         self.pumps += 1
@@ -210,12 +193,6 @@ class Swing(gym.Env):
                 ldot = -power_bounded_u
         return ldot
 
-    def compute_energy(self):
-        KE = 0.5 * (self.phi_dot[-1] * self.L[-1]) ** 2
-        PE = -self.L[-1] * np.cos(self.phi[-1])
-        energy = KE + PE
-        return energy
-
     def action_rounder(self, action):
         if action > 0.5:
             action = 1
@@ -246,8 +223,6 @@ class Swing(gym.Env):
         whether or not the episode is over, and some optional logging info
         after every time step.
 
-        I log true values but pass the state as normalized values.
-
         Parameters
         ----------
         action : np.ndarray
@@ -266,38 +241,27 @@ class Swing(gym.Env):
         reward : float
         """
 
-        # action = self.action_rounder(action[0])
-        action = self.discrete_action_lookup[action]
+        action = self.action_rounder(action[0])
         ldot = self.ldot_max * action
+        ldot = self.check_max_power_action(ldot)
         ldot = self.check_out_of_bounds_action(ldot)
-        if self.power_bounded:
-            ldot = self.check_max_power_action(ldot)
         self.Ldot_hist.append(ldot)
         self.forward(ldot)
-        length = self.L[-1]
-        omega = self.phi_dot[-1]
-        norm_length = self.length_normalizer(length=length)
-        norm_omega = self.omega_normalizer(omega=omega)
-        # state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega, norm_length], dtype=np.float32)
         state = np.array(
-            [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
+            [np.cos(self.phi[-1]), np.sin(self.phi[-1]), self.phi_dot[-1], self.L[-1]],
+            dtype=np.float32,
         )
-        # state = np.array(
-        #     [np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega], dtype=np.float32
-        # )
-        phi_prev = self.phi[-2]
-        energy = self.compute_energy()
-        energy_ratio = energy / self.L[-1]
-        if np.isclose(self.phi[-1], self.target, rtol=self.rtol) or np.isclose(
-            phi_prev, self.target, rtol=self.rtol
-        ):
-            reward = 1
+        recent_phi_dots = self.phi_dot[
+            -2:
+        ]  # not perfect. could miss a turnaround that happens and then both omega are negative.
+        if np.prod(recent_phi_dots) <= 0:
+            reward = np.abs(self.phi[-1])
             done = True
         elif self.pumps > self.pump_limit:
             reward = -1
             done = True
         else:
-            reward = -1  # + 0.25*energy_ratio # added in energy reward
+            reward = 0
             done = False
         info = {}
         return state, reward, done, info
@@ -313,21 +277,14 @@ class Swing(gym.Env):
         self.time = 0
         self.pumps = 0
         self.L = [self.lmax]
-        self.phi = [self.phi_0]
+        rand_num = np.random.random(1)[0]
+        self.phi = [rand_num * self.phi_0]
         self.phi_dot = [self.phidot_0]
         self.Ldot_hist = [0]
-        # state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
-        omega = self.phi_dot[-1]
-        norm_omega = self.omega_normalizer(omega=omega)
-        length = self.L[-1]
-        norm_length = self.length_normalizer(length=length)
-        # state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega, norm_length], dtype=np.float32)
         state = np.array(
-            [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
+            [np.cos(self.phi[-1]), np.sin(self.phi[-1]), self.phi_dot[-1], self.L[-1]],
+            dtype=np.float32,
         )
-        # state = np.array(
-        #     [np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega], dtype=np.float32
-        # )
         return state
 
     def render(self):
