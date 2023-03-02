@@ -19,19 +19,10 @@ class Swing(gym.Env):
         self.pumps = 0
         self.tau = np.sqrt(self.lmin) / 4  # play with this
         self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
-        # self.observation_space = gym.spaces.Box(
-        #     low=np.array([-1, -1, -1]),
-        #     high=np.array([1, 1, 1]),  # cos(phi), sin(phi), phi dot normalized
-        # )
-        # self.observation_space = gym.spaces.Box(
-        #     low=np.array([-1, -1, -1, -1]),
-        #     high=np.array([1, 1, 1, 1]),  # cos(phi), sin(phi), phi dot, L all normalized
-        # )
         self.observation_space = gym.spaces.Box(
             low=np.array([-1, -1, -1]),
-            high=np.array([1, 1, 1]),  # cos(phi), phi dot, L all normalized
-        )
-        # self.action_space = gym.spaces.Box(low=np.array([-1]), high=np.array([1]))
+            high=np.array([1, 1, 1]),  # phi, phi dot, L all normalized
+        )  # TESTING THIS
         self.action_space = gym.spaces.Discrete(3)
         self.phi_0 = np.pi / 4
         self.phi = [self.phi_0]
@@ -45,7 +36,7 @@ class Swing(gym.Env):
         self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
     def length_normalizer(self, length):
-        length = 10 * (length - 1)
+        length = 10 * (length - 1.05) + 1
         return length
 
     def omega_normalizer(self, omega):
@@ -187,17 +178,6 @@ class Swing(gym.Env):
             Same as policy action if the suggested action is within bound.
             Otherwise return the maximum power action allowed in this state.
         """
-        # power_bounded_u = np.abs(
-        #     self.power_max
-        #     / (
-        #         (self.mass)
-        #         * (
-        #             -9.81 * (1 - np.cos(self.phi[-1]))
-        #             + self.L[-1] * self.phi_dot[-1] ** 2
-        #         )
-        #     )
-        # )
-
         power_bounded_u = np.abs(
             self.power_max / (self.L[-1] * self.phi_dot[-1] ** 2 + np.cos(self.phi[-1]))
         )
@@ -278,13 +258,13 @@ class Swing(gym.Env):
         omega = self.phi_dot[-1]
         norm_length = self.length_normalizer(length=length)
         norm_omega = self.omega_normalizer(omega=omega)
-        # state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega, norm_length], dtype=np.float32)
-        state = np.array(
-            [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
-        )
+
         # state = np.array(
-        #     [np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega], dtype=np.float32
+        #     [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
         # )
+        state = np.array(
+            [self.phi[-1] / (np.pi) - 1, norm_omega, norm_length], dtype=np.float32
+        )
         phi_prev = self.phi[-2]
         energy = self.compute_energy()
         energy_ratio = energy / self.L[-1]
@@ -297,7 +277,7 @@ class Swing(gym.Env):
             reward = -1
             done = True
         else:
-            reward = -1  # + 0.25*energy_ratio # added in energy reward
+            reward = -1 + 0.25 * energy_ratio  # added in energy reward
             done = False
         info = {}
         return state, reward, done, info
@@ -316,18 +296,13 @@ class Swing(gym.Env):
         self.phi = [self.phi_0]
         self.phi_dot = [self.phidot_0]
         self.Ldot_hist = [0]
-        # state = np.array([self.phi[-1], self.phi_dot[-1], self.L[-1]], dtype=np.float32)
         omega = self.phi_dot[-1]
         norm_omega = self.omega_normalizer(omega=omega)
         length = self.L[-1]
         norm_length = self.length_normalizer(length=length)
-        # state = np.array([np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega, norm_length], dtype=np.float32)
         state = np.array(
-            [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
+            [self.phi[-1] / (np.pi) - 1, norm_omega, norm_length], dtype=np.float32
         )
-        # state = np.array(
-        #     [np.cos(self.phi[-1]), np.sin(self.phi[-1]), norm_omega], dtype=np.float32
-        # )
         return state
 
     def render(self):
