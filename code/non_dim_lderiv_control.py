@@ -20,9 +20,9 @@ class Swing(gym.Env):
         self.tau = np.sqrt(self.lmin) / 4  # play with this
         self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
         self.observation_space = gym.spaces.Box(
-            low=np.array([-1, -1, -1]),
-            high=np.array([1, 1, 1]),  # phi, phi dot, L all normalized
-        )  # TESTING THIS
+            low=np.array([-10, -10, 0.5]),
+            high=np.array([10, 10, 2]),  # phi, p = l^2*phi_dot, l
+        )
         self.action_space = gym.spaces.Discrete(3)
         self.phi_0 = np.pi / 4
         self.phi = [self.phi_0]
@@ -30,22 +30,22 @@ class Swing(gym.Env):
         self.phi_dot = [self.phidot_0]
         self.L = [self.lmax]
         self.Ldot_hist = [0]
-        self.pump_limit = 5000
-        self.rtol = 0.05
+        self.pump_limit = 6000
+        self.rtol = 0.02
         self.power_bounded = power_bounded
         self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
-    def length_normalizer(self, length):
+    def length_normalizer(self, length) -> float:
         length = 10 * (length - 1.05) + 1
         return length
 
-    def omega_normalizer(self, omega):
+    def omega_normalizer(self, omega) -> float:
         omega = (
             omega / 3
         )  # got the 3 by looking at a trajectory that nearly matched to OCT trajectory
-        return omega
+        return (self.L[-1] ** 2) * omega
 
-    def fun(self, t, y, ldot, g=9.81):
+    def dynamics(self, t, y, ldot) -> np.ndarray:
         """
         Define system of equations to simulate.
 
@@ -78,10 +78,7 @@ class Swing(gym.Env):
             ldot = ldot
 
         y0_dot = y[1]
-        # y1_dot = -(2 * ldot / y[2]) * y[1] - (g / y[2]) * np.sin(y[0])
-        y1_dot = -(2 * ldot / y[2]) * y[1] - (1 / y[2]) * np.sin(
-            y[0]
-        )  # non dimensional version
+        y1_dot = -(2 * ldot / y[2]) * y[1] - (1 / y[2]) * np.sin(y[0])
         y2_dot = ldot
         y_dot = np.hstack((y0_dot, y1_dot, y2_dot))
         return y_dot
@@ -104,24 +101,22 @@ class Swing(gym.Env):
         Returns
         -------
         """
-
         sol = si.solve_ivp(
-            self.fun,
+            self.dynamics,
             [self.time, self.time + self.tau],
             y0=[self.phi[-1], self.phi_dot[-1], self.L[-1]],
             args=[ldot],
         )
-        phi = np.mod(sol.y[0], 2 * np.pi)
+        phi = sol.y[0]
         self.phi.extend(list(phi[-1:]))
         phi_dot = sol.y[1]
         self.phi_dot.extend(list(phi_dot[-1:]))
         L = sol.y[2]
-        # L = np.clip(L, self.lmin, self.lmax)
         self.L.extend(list(L[-1:]))
         self.time += self.tau
         self.pumps += 1
 
-    def check_out_of_bounds_action(self, ldot):
+    def check_out_of_bounds_action(self, ldot) -> float:
         """
         Check if an action will take the length out of allowed range.
 
@@ -149,7 +144,7 @@ class Swing(gym.Env):
             ldot = ldot
         return ldot
 
-    def check_max_power_action(self, ldot):
+    def check_max_power_action(self, ldot) -> float:
         """
         Check if the suggested by the policy is within the power bound.
 
@@ -190,13 +185,13 @@ class Swing(gym.Env):
                 ldot = -power_bounded_u
         return ldot
 
-    def compute_energy(self):
+    def compute_energy(self) -> float:
         KE = 0.5 * (self.phi_dot[-1] * self.L[-1]) ** 2
         PE = -self.L[-1] * np.cos(self.phi[-1])
         energy = KE + PE
         return energy
 
-    def action_rounder(self, action):
+    def action_rounder(self, action) -> int:
         if action > 0.5:
             action = 1
         elif action < -0.5:
@@ -205,7 +200,29 @@ class Swing(gym.Env):
             action = 0
         return action
 
-    def step(self, action):
+    def extract_state(self) -> np.ndarray:
+        """
+        Extract the state of the system.
+
+        The state is given by (theta, p, l) and matches the control theory.
+        Here p = omega*l^2 is the angular momentum.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        state : np.ndarray
+            1d array with state (theta, p, l)
+        """
+        theta = self.phi[-1]
+        p = self.L[-1] * self.phi_dot[-1] ** 2
+        l = self.L[-1]
+        state = np.array([theta, p, l], dtype=np.float32)
+        return state
+
+    def step(self, action) -> tuple:
         """
         Implementing the step method required of all gym environments.
 
@@ -254,22 +271,12 @@ class Swing(gym.Env):
             ldot = self.check_max_power_action(ldot)
         self.Ldot_hist.append(ldot)
         self.forward(ldot)
-        length = self.L[-1]
-        omega = self.phi_dot[-1]
-        norm_length = self.length_normalizer(length=length)
-        norm_omega = self.omega_normalizer(omega=omega)
-
-        # state = np.array(
-        #     [np.cos(self.phi[-1]), norm_omega, norm_length], dtype=np.float32
-        # )
-        state = np.array(
-            [self.phi[-1] / (np.pi) - 1, norm_omega, norm_length], dtype=np.float32
-        )
-        phi_prev = self.phi[-2]
         energy = self.compute_energy()
         energy_ratio = energy / self.L[-1]
-        if np.isclose(self.phi[-1], self.target, rtol=self.rtol) or np.isclose(
-            phi_prev, self.target, rtol=self.rtol
+        mod_phi = np.mod(self.phi[-1], 2 * np.pi)
+        mod_phi_prev = np.mod(self.phi[-2], 2 * np.pi)
+        if np.isclose(mod_phi, self.target, rtol=self.rtol) or np.isclose(
+            mod_phi_prev, self.target, rtol=self.rtol
         ):
             reward = 1
             done = True
@@ -277,12 +284,14 @@ class Swing(gym.Env):
             reward = -1
             done = True
         else:
-            reward = -1 + 0.25 * energy_ratio  # added in energy reward
+            # reward = -1
+            reward = -1 + energy_ratio
             done = False
         info = {}
+        state = self.extract_state()
         return state, reward, done, info
 
-    def reset(self):
+    def reset(self) -> np.ndarray:
         """
         Reset system to beginning of episode.
 
@@ -296,13 +305,7 @@ class Swing(gym.Env):
         self.phi = [self.phi_0]
         self.phi_dot = [self.phidot_0]
         self.Ldot_hist = [0]
-        omega = self.phi_dot[-1]
-        norm_omega = self.omega_normalizer(omega=omega)
-        length = self.L[-1]
-        norm_length = self.length_normalizer(length=length)
-        state = np.array(
-            [self.phi[-1] / (np.pi) - 1, norm_omega, norm_length], dtype=np.float32
-        )
+        state = self.extract_state()
         return state
 
     def render(self):

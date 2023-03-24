@@ -8,10 +8,10 @@ import matplotlib.animation as animation
 env = ld.Swing()
 lmin = 0.9
 lmax = 1.1
-phi_0 = np.pi / 8
+phi_0 = np.pi / 4
 phidot_0 = 0
-tau = 0.25  # (lmax - lmin) / 4
-ldot_max = 0.25
+tau = 0.125  # (lmax - lmin) / 4
+ldot_max = 0.1
 env.ldot_max = ldot_max
 env.lmin = lmin
 env.lmax = lmax
@@ -21,7 +21,7 @@ env.phidot_0 = phidot_0
 env.tau = tau
 env.power_max = 0.25
 
-model = SAC.load("w_power_logs/rl_model_300000_steps", env=env)
+model = PPO.load("unbounded_models/rl_model_300000_steps", env=env)
 
 
 done = False
