@@ -284,8 +284,8 @@ class Swing(gym.Env):
             reward = -1
             done = True
         else:
-            # reward = -1
-            reward = -1 + energy_ratio
+            reward = -1
+            # reward = -1 + energy_ratio
             done = False
         info = {}
         state = self.extract_state()

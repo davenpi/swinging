@@ -10,7 +10,7 @@ phi_0 = np.pi / 4
 phidot_0 = 0
 tau = 0.1  # (lmax - lmin) / 4
 ldot_max = 0.1
-power_max = 100
+power_max = 0.100
 
 power_bounded = power_max < 1
 env = ld.Swing(power_bounded=power_bounded)
@@ -25,18 +25,19 @@ env.power_max = power_max
 
 checkpoint_callback = CheckpointCallback(
     save_freq=50_000,
-    save_path="unbounded_models/",
+    save_path="bounded_models/",
     name_prefix="rl_model",
 )
 
+model_path = "bounded_final_trained_w_energy_ratio/rl_model_1000000_steps.zip"
 # model = PPO("MlpPolicy", env, verbose=0, tensorboard_log="unbounded_logs/")
 model = PPO.load(
-    "unbounded_models/rl_model_1000000_steps.zip",
+    model_path,
     env=env,
-    tensorboard_log="unbounded_logs/",
+    tensorboard_log="bounded_logs/",
 )
 model.learn(
-    total_timesteps=1e6,
+    total_timesteps=6e5,
     callback=checkpoint_callback,
     progress_bar=True,
 )
