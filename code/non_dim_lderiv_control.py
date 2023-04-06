@@ -1,7 +1,7 @@
 """
-This script implement the swing as an OpenAI gym environment. With the system
-as a gym environment we can use any off the shelf reinforcement learning
-algorithms to try and optimize performance by maximizing accumulated reward.
+This script implements the swing as an OpenAI gym environment. With the system
+in this form we can easily combine it with existing implementations of 
+reinforcement learning algorithms to find an optimal strategy.
 """
 import gym
 import numpy as np
@@ -11,9 +11,29 @@ import scipy.integrate as si
 class Swing(gym.Env):
     """
     Swing environment.
+
+    Since the Swing is a gym environment it must have the following three
+    methods: step, reset, render. The 'step' method simulates the system
+    forward in time. The 'reset' method clears all history and restarts the
+    system from the initial conditions. The 'render' method is for visualizing
+    the system as a means of evaluating performance of control algorithms. We
+    have written other routines to evaluate agent performance so we implement
+    the 'render' method as a simple 'pass' statement.
     """
 
     def __init__(self, power_bounded: bool):
+        """
+        Initialize the swing system.
+
+        Parameters
+        ----------
+        power_bounded : bool
+            True if we are solving the power bounded version of the problem.
+
+        Returns
+        -------
+        None
+        """
         super(Swing, self).__init__()
         self.power_max = 0.1
         self.lmin = 0.9
@@ -25,7 +45,7 @@ class Swing(gym.Env):
         self.ldot_max = 0.1
         self.observation_space = gym.spaces.Box(
             low=np.array([-10, -10, 0.5]),
-            high=np.array([10, 10, 2]),  # phi, p = l^2*phi_dot, l
+            high=np.array([10, 10, 2]),
         )
         self.action_space = gym.spaces.Discrete(3)
         self.phi_0 = np.pi / 4
@@ -34,11 +54,16 @@ class Swing(gym.Env):
         self.phi_dot = [self.phidot_0]
         self.L = [self.lmax]
         self.Ldot_hist = [0]
+        # end the episode if the agent has not solved the task after this
+        # many time steps
         self.pump_limit = 6000
         self.rtol = 0.02
         self.power_bounded = power_bounded
         # gym discrete actions are 0, ..., n. We want the actions to be
         # {0, 1, -1}. This dictionary performs the remapping of the actions.
+        # An action of 0 corresponds to doing nothing. An action of 1
+        # corresponds to squatting as fast as possible. An action of -1
+        # corresponds to standing as fast as possible.
         self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
     def dynamics(self, t: float, y: np.ndarray, ldot: float) -> np.ndarray:
@@ -50,21 +75,23 @@ class Swing(gym.Env):
         bounded version of the problem. If so, we need to make sure the current
         value of the control gets modified so that it falls within the power
         bounds (eq. 4 in the accompanying paper). Returns the derivatives of
-        each of the variables to simulate the system forward in time.
+        each of the variables.
 
         Parameters
         ----------
         t : float
-            Instantaneous time.
+            Current time in the simulation.
         y : np.ndarray
-            Array containing (theta, omega, l) values at a given time. Not the
-            same as the state.
+            Shape (3,) array containing (theta, omega, l) values at a given
+            time. Note this y is the same as the state given to the
+            reinforcement learning agent.
         ldot : float
-            Value of the control variable u = ldot at a given time.
+            Value of the control variable, u = ldot, at a given time.
 
         Returns
         -------
         y_dot : np.ndarray
+            Shape (3,) array containing derivatives of the state variables.
         """
         if self.power_bounded == True:
             power_bounded_u = np.abs(self.power_max / (y[2] * y[1] ** 2 + np.cos(y[0])))
@@ -77,7 +104,6 @@ class Swing(gym.Env):
                     ldot = -power_bounded_u
         else:
             ldot = ldot
-
         y0_dot = y[1]
         y1_dot = -(2 * ldot / y[2]) * y[1] - (1 / y[2]) * np.sin(y[0])
         y2_dot = ldot
@@ -90,9 +116,7 @@ class Swing(gym.Env):
 
         Here we simulate the differential equations describing the system
         forward in time by one time step. After simulating the equations
-        I append solutions to the state history. I also increment time
-        forward by the simulation timestep "tau" and by incrementing the
-        total number of pumps by one.
+        we append solutions to the state history.
 
         Parameters
         ----------
@@ -209,7 +233,8 @@ class Swing(gym.Env):
         Returns
         -------
         state : np.ndarray
-            1d array with state (theta, p, l)
+            Shape (3,) array with state (theta, p, l). The state matches the
+            state whose dynamics are given in equation 1 of the accompanying paper.
         """
         theta = self.phi[-1]
         p = self.L[-1] * self.phi_dot[-1] ** 2
@@ -243,15 +268,14 @@ class Swing(gym.Env):
         Returns
         -------
         state : np.ndarray
-            State of the system (angle, angular momentum, length). This is
-            the same state as described in equation 1 of the accompanying
-            paper.
+            Shape (3,) array containing the state of the system
+            (angle, angular momentum, length).
         done : Bool
-            True if episode is over because the agent accomplished the task or
-            ran out of time. False otherwise.
+            True if the episode is over because the agent accomplished the task
+            or ran out of time. False otherwise.
         reward : float
-            Feedback signal given to the agent to help with learning. The
-            accumulated reward is what the agent tries to maximize over time.
+            Feedback signal given to the agent. The agents' goal is to
+            maximize the accumulated reward.
         """
         action = self.discrete_action_lookup[action]
         ldot = self.ldot_max * action
@@ -305,7 +329,7 @@ class Swing(gym.Env):
         state = self.extract_state()
         return state
 
-    def render(self):
+    def render(self) -> None:
         """
         Required method for gym environments. Used to visualize the system.
 

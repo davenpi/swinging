@@ -1,10 +1,13 @@
+"""
+This script is used to train and save the agents' progress.
+"""
 import non_dim_lderiv_control as ld
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 
 
-# Set initial parameters
+# Set swing parameters
 lmin = 0.95
 lmax = 1.05
 phi_0 = np.pi / 4
