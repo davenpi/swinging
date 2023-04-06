@@ -1,3 +1,8 @@
+"""
+This script implement the swing as an OpenAI gym environment. With the system
+as a gym environment we can use any off the shelf reinforcement learning
+algorithms to try and optimize performance by maximizing accumulated reward.
+"""
 import gym
 import numpy as np
 import scipy.integrate as si
@@ -10,15 +15,14 @@ class Swing(gym.Env):
 
     def __init__(self, power_bounded: bool):
         super(Swing, self).__init__()
-        self.power_max = 1000  # number in Watts is max power output from muscles
-        self.mass = 70  # irrelevant in non dim
+        self.power_max = 0.1
         self.lmin = 0.9
         self.lmax = 1.1
         self.target = np.pi
         self.time = 0
         self.pumps = 0
-        self.tau = np.sqrt(self.lmin) / 4  # play with this
-        self.ldot_max = (self.lmax - self.lmin) / (2 * self.tau)
+        self.tau = 0.1  # simulation time step
+        self.ldot_max = 0.1
         self.observation_space = gym.spaces.Box(
             low=np.array([-10, -10, 0.5]),
             high=np.array([10, 10, 2]),  # phi, p = l^2*phi_dot, l
@@ -33,33 +37,30 @@ class Swing(gym.Env):
         self.pump_limit = 6000
         self.rtol = 0.02
         self.power_bounded = power_bounded
+        # gym discrete actions are 0, ..., n. We want the actions to be
+        # {0, 1, -1}. This dictionary performs the remapping of the actions.
         self.discrete_action_lookup = {0: 0, 1: 1, 2: -1}
 
-    def length_normalizer(self, length) -> float:
-        length = 10 * (length - 1.05) + 1
-        return length
-
-    def omega_normalizer(self, omega) -> float:
-        omega = (
-            omega / 3
-        )  # got the 3 by looking at a trajectory that nearly matched to OCT trajectory
-        return (self.L[-1] ** 2) * omega
-
-    def dynamics(self, t, y, ldot) -> np.ndarray:
+    def dynamics(self, t: float, y: np.ndarray, ldot: float) -> np.ndarray:
         """
-        Define system of equations to simulate.
+        Define the system of equations to simulate and compute derivatives.
+
+        This function implements the dynamical equations governing the system.
+        The if/else logic checks whether or not we are solving the power
+        bounded version of the problem. If so, we need to make sure the current
+        value of the control gets modified so that it falls within the power
+        bounds (eq. 4 in the accompanying paper). Returns the derivatives of
+        each of the variables to simulate the system forward in time.
 
         Parameters
         ----------
         t : float
-            Instantaneous time. Used if equation depends explicitly on time.
+            Instantaneous time.
         y : np.ndarray
             Array containing (theta, omega, l) values at a given time. Not the
             same as the state.
         ldot : float
             Value of the control variable u = ldot at a given time.
-        g : float
-            Gravitational constant.
 
         Returns
         -------
@@ -83,7 +84,7 @@ class Swing(gym.Env):
         y_dot = np.hstack((y0_dot, y1_dot, y2_dot))
         return y_dot
 
-    def forward(self, ldot):
+    def forward(self, ldot: float) -> None:
         """
         Simulate the swing forward in time by one time step.
 
@@ -100,6 +101,7 @@ class Swing(gym.Env):
 
         Returns
         -------
+        None
         """
         sol = si.solve_ivp(
             self.dynamics,
@@ -116,7 +118,7 @@ class Swing(gym.Env):
         self.time += self.tau
         self.pumps += 1
 
-    def check_out_of_bounds_action(self, ldot) -> float:
+    def check_out_of_bounds_action(self, ldot: float) -> float:
         """
         Check if an action will take the length out of allowed range.
 
@@ -144,23 +146,13 @@ class Swing(gym.Env):
             ldot = ldot
         return ldot
 
-    def check_max_power_action(self, ldot) -> float:
+    def check_max_power_action(self, ldot: float) -> float:
         """
         Check if the suggested by the policy is within the power bound.
 
         Since we are limiting the amount of power the person can output, we
         need to make sure that the actions taken by the agent are within the
-        specified bounds. The trick is that the value of the control which is
-        within the power bounds depends on the state of the system. So first
-        we compute the state dependent power bound formula that is derived in
-        the paper. After we have computed that bound we then check to see if
-        the action picked by the RL agent in within that bound. If it is,
-        do nothing. If the action is outside of the bound, set the new action
-        to be the maximum power that can be supplied. Note this should only be
-        applied for actions where ldot is less than zero (ldot < 0)becasue
-        those are the cases where the swinger wants to stand up and therefore
-        use effort. For now we can assume that squatting down requires no
-        power output.
+        specified bounds.
 
         Parameters
         ----------
@@ -186,19 +178,22 @@ class Swing(gym.Env):
         return ldot
 
     def compute_energy(self) -> float:
+        """
+        Compute the sum of the potential and kinetic energy of the swing.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        energy : float
+            Sum of potential and kinetic energy.
+        """
         KE = 0.5 * (self.phi_dot[-1] * self.L[-1]) ** 2
         PE = -self.L[-1] * np.cos(self.phi[-1])
         energy = KE + PE
         return energy
-
-    def action_rounder(self, action) -> int:
-        if action > 0.5:
-            action = 1
-        elif action < -0.5:
-            action = -1
-        else:
-            action = 0
-        return action
 
     def extract_state(self) -> np.ndarray:
         """
@@ -222,28 +217,22 @@ class Swing(gym.Env):
         state = np.array([theta, p, l], dtype=np.float32)
         return state
 
-    def step(self, action) -> tuple:
+    def step(self, action: int) -> tuple:
         """
-        Implementing the step method required of all gym environments.
+        Step is a method required by all gym envs. Advance the system in time.
 
         Here we move the simulation forward in time with the given action.
-        The reward is structured so that every time step is penalized i.e we
-        want the agent to complete the task as quickly as possbile. We have a
-        small reward for getting to phi = pi. The reward for swinging up to
-        phi = pi is actually not quite what I want. I want the agent to
-        get as high as possible as quickly as possible. I NEED TO FIX THAT.
-        There is an end condition which says that if the agent has
-        tried 5000 pumps up and down and is yet to solve the task, end the
-        episode. Finally there is some reward associated with using less the
-        amount of effort the agent is using to complete the task. The effort
-        dependent reward is normalized and the weighting factor determines
-        how much we care about using energy vs taking time to complete the
-        task.
-        I return the state (angle, angular velocity, length), reward,
-        whether or not the episode is over, and some optional logging info
-        after every time step.
-
-        I log true values but pass the state as normalized values.
+        The reward is structured so that every time step the agent gets a
+        positive reward for its energy and a negative reward for not yet
+        reaching the goal state. The if/else logic inside checks whether or
+        not the agent is sufficiently close to the goal state on the most
+        recent time steps. Each simulation interval has intermediate values
+        and we check whether or not the agent reached the goal at one of the
+        intermediate values between time steps. This checking ensures that we
+        end the episode properly. During training we set rtol, the relative
+        tolerance/allowed percentage deviating from the true final state, to
+        2 percent. After training and during evaluation of the agent we set
+        rtol to be 0.1 percent.
 
         Parameters
         ----------
@@ -254,16 +243,16 @@ class Swing(gym.Env):
         Returns
         -------
         state : np.ndarray
-            State of the system (angle, angular velcoity, length). This is
-            a choice and experimenting with different states is cetnratinly
-            on the table.
+            State of the system (angle, angular momentum, length). This is
+            the same state as described in equation 1 of the accompanying
+            paper.
         done : Bool
             True if episode is over because the agent accomplished the task or
             ran out of time. False otherwise.
         reward : float
+            Feedback signal given to the agent to help with learning. The
+            accumulated reward is what the agent tries to maximize over time.
         """
-
-        # action = self.action_rounder(action[0])
         action = self.discrete_action_lookup[action]
         ldot = self.ldot_max * action
         ldot = self.check_out_of_bounds_action(ldot)
@@ -284,8 +273,7 @@ class Swing(gym.Env):
             reward = -1
             done = True
         else:
-            reward = -1
-            # reward = -1 + energy_ratio
+            reward = -1 + energy_ratio
             done = False
         info = {}
         state = self.extract_state()
@@ -296,8 +284,17 @@ class Swing(gym.Env):
         Reset system to beginning of episode.
 
         I am restarting the agent from the same initial state every time. This
-        method is here to clear out all of the accumulated history from the
+        method also clears out all of the accumulated history from the
         most recent training run.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        state : np.ndarray
+            State of the system at the initial time.
         """
         self.time = 0
         self.pumps = 0
@@ -309,4 +306,9 @@ class Swing(gym.Env):
         return state
 
     def render(self):
+        """
+        Required method for gym environments. Used to visualize the system.
+
+        Not necessary to implement so I have left if blank.
+        """
         pass
