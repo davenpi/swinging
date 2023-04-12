@@ -83,7 +83,7 @@ class Swing(gym.Env):
             Current time in the simulation.
         y : np.ndarray
             Shape (3,) array containing (theta, omega, l) values at a given
-            time. Note this y is the same as the state given to the
+            time. Note this y is not the same as the state given to the
             reinforcement learning agent.
         ldot : float
             Value of the control variable, u = ldot, at a given time.
